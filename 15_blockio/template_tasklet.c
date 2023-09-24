@@ -25,6 +25,9 @@
 #include <linux/wait.h>
 #include <linux/ide.h>
 
+#define M_WAIT_EVENT        //等待事件方式
+
+
 #define TEMPLATE_CNT  1
 #define TEMPLATE_NAME  "template"
 
@@ -96,7 +99,14 @@ static ssize_t template_read(struct file *filp, char __user *buf, size_t cnt, lo
     struct template_dev *dev = (struct template_dev *)filp->private_data;
 
     printk("driver: start sleeping()\r\n");
-    // wait_event_interruptible(dev->r_wait, atomic_read(&dev->releasekey));       //使进程休眠
+
+//两种方式二选一
+#ifdef M_WAIT_EVENT
+    //使进程休眠,唤醒的条件是r_wait被wake_up()唤醒，且atomic_read(&dev->releasekey)为真
+    wait_event_interruptible(dev->r_wait, atomic_read(&dev->releasekey));       
+#endif
+
+#ifndef M_WAIT_EVENT
     DECLARE_WAITQUEUE(wait, current);
     add_wait_queue(&dev->r_wait, &wait);
     __set_current_state(TASK_INTERRUPTIBLE);
@@ -107,6 +117,7 @@ static ssize_t template_read(struct file *filp, char __user *buf, size_t cnt, lo
         ret = -ERESTARTSYS;
         goto data_err;
     }
+#endif
 
     printk("driver: task start running\r\n");
 
@@ -126,8 +137,10 @@ static ssize_t template_read(struct file *filp, char __user *buf, size_t cnt, lo
     }
 
 data_err:
+#ifndef M_WAIT_EVENT
     __set_current_state(TASK_RUNNING);
     remove_wait_queue(&dev->r_wait, &wait);
+#endif
     return ret;
 }
 
@@ -139,6 +152,7 @@ static struct file_operations template_fops = {
     .read = template_read,
 };
 
+//中断处理函数，顶半部需要快进快出，时效不高的处理放置到tasklet中处理
 irqreturn_t key0_irq_handler(int irq, void *dev_id) {
     // int value = 0;
     struct template_dev *dev = (struct template_dev *)dev_id;
@@ -146,10 +160,12 @@ irqreturn_t key0_irq_handler(int irq, void *dev_id) {
 
     // dev->timer.data = (unsigned long)dev_id;
     // mod_timer(&dev->timer, jiffies + msecs_to_jiffies(10));
+    //开启tasklet
     tasklet_schedule(&dev->irqkey[0].tasklet);
     return IRQ_HANDLED;
 }
 
+//定时器处理函数,通过timer消抖
 static void timer_func(unsigned long arg) {
     int value = 0;
     struct template_dev *dev = (struct template_dev *)arg;
@@ -167,18 +183,21 @@ static void timer_func(unsigned long arg) {
     //唤醒进程
     if (atomic_read(&dev->releasekey)) {
         printk("driver: start wake_up()\r\n");
-        wake_up(&dev->r_wait);
+        wake_up(&dev->r_wait);  //唤醒
         printk("driver: wake_up() finished\r\n");
     }
 }
 
+//tasklet处理函数,中断底半部在这里处理
 static void key_tasklet(unsigned long data) {
     struct template_dev *dev = (struct template_dev *)data;
     
     printk("key_tasklet\r\n");
     dev->timer.data = (unsigned long)data;
+    //开启定时器，超时时间为当前时间+10ms,用于消抖
     mod_timer(&dev->timer, jiffies + msecs_to_jiffies(10));
 }
+
 
 //按键初始化
 static int keyio_init(struct template_dev *dev) {
@@ -200,7 +219,8 @@ static int keyio_init(struct template_dev *dev) {
         gpio_direction_input(dev->irqkey[i].gpio);
 
         dev->irqkey[i].irq_num = gpio_to_irq(dev->irqkey[i].gpio);
-        // dev->irqkey[i].irq_num = irq_of_parse_and_map(dev->nd, 0);
+        //或者通过irq_of_parse_and_map()替代gpio_to_irq()
+        // dev->irqkey[i].irq_num = irq_of_parse_and_map(dev->nd, 0); 
 
     }
 
@@ -209,15 +229,18 @@ static int keyio_init(struct template_dev *dev) {
     dev->irqkey[0].tasklet.func = key_tasklet;
     //按键中断初始化
     for(i = 0; i < KEY_NUM; i++) {
+        //请求中断
         ret = request_irq(dev->irqkey[i].irq_num, dev->irqkey[i].handler, 
                         IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING, dev->irqkey[i].name, dev);
         if (ret) {
             printk("irq %d request failed\r\n", dev->irqkey[i].irq_num);
             goto fail_irq;
         }
+        //初始化tasklet
         tasklet_init(&dev->irqkey[i].tasklet, dev->irqkey[i].tasklet.func, (unsigned long)dev);
     }
 
+    //初始化定时器，消抖
     init_timer(&dev->timer);
     dev->timer.function = timer_func;
     // dev->timer.data = (unsigned long)dev;
@@ -235,10 +258,11 @@ static int __init template_init(void) {
 
     template.major = 0;
 
+    //如果指定了主设备号
     if (template.major > 0 ) {
         template.devid = MKDEV(template.major,0);
         register_chrdev_region(template.devid, TEMPLATE_CNT, TEMPLATE_NAME);
-    } else {
+    } else {    //未指定主设备号则动态申请一个
         alloc_chrdev_region(&template.devid, 0, TEMPLATE_CNT, TEMPLATE_NAME);
         template.major = MAJOR(template.devid);
         template.minor = MINOR(template.devid);
@@ -265,6 +289,7 @@ static int __init template_init(void) {
     atomic_set(&template.keyvalue, INVAKEY);
     atomic_set(&template.releasekey, 0);
 
+    //初始化等待队列头，用于阻塞IO
     init_waitqueue_head(&template.r_wait);
     // template.nd = of_find_node_by_path("/template");
     // if (template.nd == NULL) {
