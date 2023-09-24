@@ -1,0 +1,125 @@
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/init.h>
+#include <linux/fs.h>
+#include <linux/uaccess.h>
+#include <linux/io.h>
+
+#define LED_MAJOR  (200)
+#define LED_NAME  "led"
+
+#define CCM_CCGR1_BASE          (0x020C406C)
+#define SW_MUX_GPIO1_IO03_BASE  (0x020E0068)
+#define SW_PAD_GPIO1_IO03_BASE  (0x020E02F4)
+#define GPIO1_DR_BASE           (0x0209C000)
+#define GPIO1_GDIR_BASE         (0x0209C004)
+
+static void __iomem *IMX6U_CCM_CCGR1;
+static void __iomem *IMX6U_SW_MUX_GPIO1_IO03;
+static void __iomem *IMX6U_SW_PAD_GPIO1_IO03;
+static void __iomem *IMX6U_GPIO1_DR;
+static void __iomem *IMX6U_GPIO1_GDIR;
+
+#define LEDOFF  0
+#define LEDON   1
+
+static int led_open(struct inode *inode, struct file *filp) {
+    return 0;
+}
+
+static int led_release(struct inode *inode, struct file *filp) {
+    unsigned int val = 0;
+
+    return 0;
+}
+
+static ssize_t led_write(struct file *filp, const char __user *buff, size_t count, loff_t *loff) {
+    unsigned int val;
+    int retvalue;
+    unsigned char databuf[1];
+    retvalue = copy_from_user(databuf, buff, count);
+    if (retvalue < 0) {
+        printk("copy_from_user() failed\r\n");
+        return -EFAULT;
+    }
+    if (databuf[0] == LEDON) {
+        val = readl(IMX6U_GPIO1_DR);
+        val &= ~(1<<3);
+        writel(val, IMX6U_GPIO1_DR);
+    } else if (databuf[0] == LEDOFF) {
+        val = readl(IMX6U_GPIO1_DR);
+        val |= (1<<3);
+        writel(val, IMX6U_GPIO1_DR);
+    }
+
+    return 0;
+}
+
+static struct file_operations led_fops = {
+    .owner = THIS_MODULE,
+    .open = led_open,
+    .release = led_release,
+    .write = led_write,
+};
+
+
+static int __init led_init(void) {
+    int ret = 0;
+    unsigned int val = 0;
+    printk("led_init()\r\n");
+
+    IMX6U_CCM_CCGR1 = ioremap(CCM_CCGR1_BASE, 4);
+    IMX6U_SW_MUX_GPIO1_IO03 = ioremap(SW_MUX_GPIO1_IO03_BASE, 4);
+    IMX6U_SW_PAD_GPIO1_IO03 = ioremap(SW_PAD_GPIO1_IO03_BASE, 4);
+    IMX6U_GPIO1_DR = ioremap(GPIO1_DR_BASE, 4);
+    IMX6U_GPIO1_GDIR = ioremap(GPIO1_GDIR_BASE, 4);
+
+    val = readl(IMX6U_CCM_CCGR1);
+    val &= ~(3 << 26);
+    val |= (3 << 26);
+    writel(val, IMX6U_CCM_CCGR1);
+
+    writel(0x5, IMX6U_SW_MUX_GPIO1_IO03);
+    writel(0x10b0, IMX6U_SW_PAD_GPIO1_IO03);
+    
+    val = readl(IMX6U_GPIO1_GDIR);
+    val |= 1<<3;
+    writel(val, IMX6U_GPIO1_GDIR);
+
+    val = readl(IMX6U_GPIO1_DR);
+    val &= ~(1<<3);
+    writel(val, IMX6U_GPIO1_DR);
+
+    ret = register_chrdev(LED_MAJOR, LED_NAME, &led_fops);
+    if (ret < 0) {
+        printk("register_chrdev() failed\r\n");
+        return -EIO;
+    }
+
+    return 0;
+}
+
+static void __exit led_exit(void) {
+    unsigned int val = 0;
+
+    printk("led_exit()\r\n");
+
+    val = readl(IMX6U_GPIO1_DR);
+    val |= (1<<3);
+    writel(val, IMX6U_GPIO1_DR);
+
+    iounmap(IMX6U_CCM_CCGR1);
+    iounmap(IMX6U_SW_MUX_GPIO1_IO03);
+    iounmap(IMX6U_SW_PAD_GPIO1_IO03);
+    iounmap(IMX6U_GPIO1_DR);
+    iounmap(IMX6U_GPIO1_GDIR);
+
+    unregister_chrdev(LED_MAJOR, LED_NAME);
+
+}
+
+
+module_init(led_init);
+module_exit(led_exit);
+
+MODULE_LICENSE("GPL");

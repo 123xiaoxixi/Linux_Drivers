@@ -1,0 +1,1 @@
+cmd_/home/lsr/linux/IMX6ULL/Linux_Drivers/10_semaphore/semaphore.ko := arm-linux-gnueabihf-ld -EL -r  -T ./scripts/module-common.lds --build-id  -o /home/lsr/linux/IMX6ULL/Linux_Drivers/10_semaphore/semaphore.ko /home/lsr/linux/IMX6ULL/Linux_Drivers/10_semaphore/semaphore.o /home/lsr/linux/IMX6ULL/Linux_Drivers/10_semaphore/semaphore.mod.o
