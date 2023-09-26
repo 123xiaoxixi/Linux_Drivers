@@ -1,5 +1,4 @@
 ## 非阻塞IO测试
-当read()没有有效值时，使进程休眠，有值时再唤醒，避免进程长时间占用CPU资源
 fd = open(filename, O_RDWR);    //阻塞方式打开
 fd = open(filename, O_RDWR | O_NONBLOCK);   //非阻塞方式打开
 非阻塞方式访问需要借助select()/epoll()/poll()函数调用内核的poll()函数，根据poll函数返回的数据判断当前IO是否可以操作(可读?可写?...)
