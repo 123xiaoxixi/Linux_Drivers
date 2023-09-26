@@ -1,0 +1,66 @@
+## 非阻塞IO测试
+当read()没有有效值时，使进程休眠，有值时再唤醒，避免进程长时间占用CPU资源
+fd = open(filename, O_RDWR);    //阻塞方式打开
+fd = open(filename, O_RDWR | O_NONBLOCK);   //非阻塞方式打开
+非阻塞方式访问需要借助select()/epoll()/poll()函数调用内核的poll()函数，根据poll函数返回的数据判断当前IO是否可以操作(可读?可写?...)
+
+## dts
+
+<imx6ull.dtsi>
+//中断控制器节点:
+intc: interrupt-controller@00a01000 {
+    compatible = "arm,cortex-a7-gic";
+    #interrupt-cells = <3>;
+    interrupt-controller;
+    reg = <0x00a01000 0x1000>,
+            <0x00a02000 0x100>;
+};
+第 2 行， compatible 属性值为“arm,cortex-a7-gic”在 Linux 内核源码中搜索“arm,cortex-a7-
+gic”即可找到 GIC 中断控制器驱动文件。
+第 3 行， #interrupt-cells 和#address-cells、 #size-cells 一样。表示此中断控制器下设备的 cells
+大小，对于设备而言，会使用 interrupts 属性描述中断信息， #interrupt-cells 描述了 interrupts 属
+性的 cells 大小，也就是一条信息有几个 cells。每个 cells 都是 32 位整形值，对于 ARM 处理的
+GIC 来说，一共有 3 个 cells，这三个 cells 的含义如下：
+第一个 cells：中断类型， 0 表示 SPI 中断， 1 表示 PPI 中断。
+第二个 cells：中断号，对于 SPI 中断来说中断号的范围为 0~987，对于 PPI 中断来说中断
+号的范围为 0~15。
+第三个 cells：标志， bit[3:0]表示中断触发类型，为 1 的时候表示上升沿触发，为 2 的时候
+表示下降沿触发，为 4 的时候表示高电平触发，为 8 的时候表示低电平触发。 bit[15:8]为 PPI 中
+断的 CPU 掩码。
+第 4 行， interrupt-controller 节点为空，表示当前节点是中断控制器
+
+gpio1: gpio@0209c000 {
+    compatible = "fsl,imx6ul-gpio", "fsl,imx35-gpio";
+    reg = <0x0209c000 0x4000>;
+    interrupts = <GIC_SPI 66 IRQ_TYPE_LEVEL_HIGH>,
+                <GIC_SPI 67 IRQ_TYPE_LEVEL_HIGH>;
+    gpio-controller;
+    #gpio-cells = <2>;
+    interrupt-controller;
+    #interrupt-cells = <2>;
+};
+第 4 行， interrupts 描述中断源信息，对于 gpio1来说一共有两条信息，中断类型都是 SPI，
+触发电平都是 IRQ_TYPE_LEVEL_HIGH。不同之处在于中断源，一个是66，一个是67
+第 8 行， interrupt-controller 表明了 gpio5 节点也是个中断控制器，用于控制 gpio5 所有 IO
+的中断。
+第 9 行，将#interrupt-cells 修改为 2。
+
+<imx6ull-alientek-emmc.dts>
+key {
+    compatible = "alientek,key";
+    pinctrl-names = "default";
+    pinctrl-0 = <&pinctrl_key>;
+    key_gpios = <&gpio1 18 GPIO_ACTIVE_HIGH>;
+    status = "okay";
+    interrupt-parent = <&gpio1>;
+    interrupts = <18 IRQ_TYPE_EDGE_BOTH>;
+};
+第 5 行， interrupt-parent 属性设置中断控制器，这里使用 gpio5 作为中断控制器。
+第 6 行， interrupts 设置中断信息， 0 表示 GPIO5_IO00， 8 表示低电平触发。
+简单总结一下与中断有关的设备树属性信息：
+①、 #interrupt-cells，指定中断源的信息 cells 个数。
+②、 interrupt-controller，表示当前节点为中断控制器。
+③、 interrupts，指定中断号，触发方式等。
+④、 interrupt-parent，指定父中断，也就是中断控制器。
+
+
