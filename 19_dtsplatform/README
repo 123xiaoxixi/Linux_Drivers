@@ -1,0 +1,4 @@
+## platform总线
+当driver中compatible属性和设备树compatible匹配时，执行probe()函数,在
+probe()中完成init
+

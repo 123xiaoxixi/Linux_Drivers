@@ -1,7 +1,7 @@
 KERNELDIR := /home/shirong/linux/IMX6ULL/linux/linux-imx-rel_imx_4.1.15_2.1.0_ga_alientek
 CURRENT_PATH := $(shell pwd)
 
-obj-m := leddevice.o leddriver.o 
+obj-m := leddriver.o 
 
 build: kernel_modules
 
