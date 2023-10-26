@@ -1,0 +1,8 @@
+## misc驱动
+misc驱动省去了cdev_init()/cdev_add()/class_create()/device_create()...
+1.通过platform驱动框架，当驱动与设备树中compatible匹配时，执行probe(),在probe中完成gpio初始化
+2.然后通过misc_register()注册misc
+
+misc设备主设备号为10
+
+
