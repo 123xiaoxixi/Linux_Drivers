@@ -1,0 +1,29 @@
+## input子系统驱动
+
+按键驱动对应的文件/dev/input/eventx
+主设备号是13
+
+/lib/modules/4.1.15 # hexdump /dev/input/event1
+输出的内容为
+struct input_event {
+	struct timeval time;
+	__u16 type;
+	__u16 code;
+	__s32 value;
+};
+
+按下一次按键的hexdump:
+type为0001表示EV_KEY, 0000表示EV_SYN,  事件码000b表示KEY_0,  value 0001表示按键按下
+编号       秒           微妙       事件类型   事件码     value
+0000040 89c0 0001   1e03 0006    0001      000b    0001 0000    
+0000050 89c0 0001   1e03 0006    0000      0000    0000 0000
+
+驱动中:
+input子系统驱动省去了cdev_init()/cdev_add()/class_create()/device_create()...
+同时系统内定义如key/button等类型, 各类型下键值等, 驱动中注册后在中断底半部中使用input_event()上报对应事件即可
+
+应用程序中:
+读取到的数据类型为input_event, 然后解析类型键值即可
+
+
+
